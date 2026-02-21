@@ -6,6 +6,8 @@
 
 FoodSight AI is a deep learning application capable of classifying **100 different Indian food dishes** with high accuracy. It features a modern web interface, real-time camera support, and detailed nutritional breakdown.
 
+**🚀 [Live Demo on Render](https://food-sightai.onrender.com)**
+
 ## ✨ What's New (Review 4 Update)
 
 -   **Flexible Portion Selection**: Input custom counts or grams/ml for hyper-accurate nutrition.
