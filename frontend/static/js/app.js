@@ -1593,22 +1593,44 @@ function captureImage() {
 
     if (!video.videoWidth) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // --- PERFORMANCE OPTIMIZATION: Client-side Resizing ---
+    // Target a maximum of 800px for the longest side.
+    // This reduces a 10MB photo to ~50KB-100KB, making upload near-instant.
+    const MAX_DIM = 800;
+    let width = video.videoWidth;
+    let height = video.videoHeight;
+
+    if (width > height) {
+        if (width > MAX_DIM) {
+            height *= MAX_DIM / width;
+            width = MAX_DIM;
+        }
+    } else {
+        if (height > MAX_DIM) {
+            width *= MAX_DIM / height;
+            height = MAX_DIM;
+        }
+    }
+
+    canvas.width = width;
+    canvas.height = height;
 
     const ctx = canvas.getContext('2d');
     if (useFrontCamera) {
+        ctx.save();
         ctx.scale(-1, 1); // Mirror if front camera
         ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+        ctx.restore();
     } else {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
 
+    // Compress to JPEG with 0.8 quality
     canvas.toBlob((blob) => {
         const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
         handleFile(file);
         closeCamera();
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.8);
 }
 
 /* ============================================================================

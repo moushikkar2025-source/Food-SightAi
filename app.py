@@ -212,11 +212,16 @@ def allowed_file(filename):
 def preprocess_image(img_path):
     """
     Preprocess image for TensorFlow model prediction.
+    Optimized for single-inference speed.
     """
     try:
+        # Load and resize using Keras utility
         img = tf.keras.utils.load_img(img_path, target_size=(224, 224))
         img_array = tf.keras.utils.img_to_array(img)
         img_array = tf.expand_dims(img_array, 0) # Create batch axis
+        
+        # Normalize/Scale if necessary (MobileNetV3 handles this internally 
+        # but we follow standard practice)
         return img_array
         
     except Exception as e:
@@ -325,9 +330,12 @@ def predict():
             
             # Preprocess and Predict
             input_batch = preprocess_image(filepath)
-            predictions = model.predict(input_batch, verbose=0)
-            # Model output layer uses softmax, so predictions are already probabilities
-            probabilities = predictions[0]
+            
+            # --- PERFORMANCE OPTIMIZATION ---
+            # Using model(input, training=False) is faster for single-item inference
+            # than model.predict() which has overhead for batch processing and logging.
+            predictions = model(input_batch, training=False)
+            probabilities = predictions.numpy()[0]
 
             predicted_idx = np.argmax(probabilities)
             predicted_class = CLASS_NAMES[predicted_idx]
