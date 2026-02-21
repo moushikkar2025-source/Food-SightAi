@@ -7,15 +7,14 @@ Flask==3.0.0
 Flask-CORS==4.0.0
 Werkzeug==3.0.1
 
-# Deep Learning (TensorFlow)
-tensorflow>=2.10.0
-# tensorflow-gpu is now included in tensorflow package for newer versions
+# Deep Learning (TensorFlow-CPU for lighter production build)
+tensorflow-cpu==2.15.0
 
 # Image Processing
 Pillow>=10.0.0
 
 # Numerical Computing
-numpy>=1.26.0
+numpy>=1.23.5,<2.0.0
 pandas>=2.0.0
 matplotlib>=3.7.0
 
@@ -23,12 +22,12 @@ matplotlib>=3.7.0
 python-dateutil>=2.8.2
 python-dotenv==1.2.1
 flask-limiter==4.1.1
-python-magic-bin==0.4.14
+python-magic==0.4.27
 
 # Authentication & Database
 Flask-Login==0.6.3
 Flask-SQLAlchemy==3.1.1
 bcrypt==4.1.2
 
-# Development (optional)
-# gunicorn==21.2.0  # For production deployment
+# Production Server
+gunicorn==21.2.0
