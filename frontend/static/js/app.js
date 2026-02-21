@@ -515,7 +515,8 @@ async function handlePredict() {
             console.log('✓ Prediction successful:', data.predicted_class);
             displayResults(data);
         } else {
-            throw new Error(data.message || 'Prediction failed');
+            // Backend sends 'data.error', not 'data.message' — read both for safety
+            throw new Error(data.error || data.message || 'Prediction failed. The AI model may still be loading — please wait a moment and try again.');
         }
 
     } catch (error) {
@@ -524,6 +525,12 @@ async function handlePredict() {
         showError(error.message || 'An error occurred during prediction. Please try again.');
     }
 }
+
+// Wire up camera and share features once DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    initCameraFeatures();
+    initShareFeature();
+});
 
 /**
  * Display prediction results
@@ -1523,8 +1530,9 @@ function initCameraFeatures() {
     const modal = document.getElementById('cameraModal');
 
     if (cameraBtn) {
-        cameraBtn.addEventListener('click', () => {
-            modal.style.display = 'block';
+        cameraBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // prevent uploadZone click from also firing
+            modal.style.display = 'flex';
             startCamera();
         });
     }
