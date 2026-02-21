@@ -85,7 +85,15 @@ FoodSight-AI/
 -   **Architecture**: MobileNetV3Large (Transfer Learning + Fine-Tuning)
 -   **Dataset**: 100 Classes, ~600 images per class.
 -   **Accuracy**: ~91% Training, ~78% Validation (Top-3: ~94%)
+## Team
 
+| Name | Branch | Role |
+|------|--------|------|
+| **Tanmay** | CSE | Backend / ML |
+| **Rishabh** | CSE | UI / Frontend |
+| **Ishaan** | CSE | Nutrition / Dataset |
+| **Mokshesh** | CSE | Documentation |
+| **Moushikka** | VLSI | VLSI / Hardware |
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
