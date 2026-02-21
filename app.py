@@ -57,7 +57,7 @@ from flask_bcrypt import Bcrypt
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'uploads')
-app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'webp'}
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'}
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-key-123')
 
 # Robust Database URI handling (SQLite vs PostgreSQL for Render)

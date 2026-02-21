@@ -448,6 +448,9 @@ async function handleFile(file) {
 
     console.log('✓ File processing started:', file.name, `(${Math.round(file.size / 1024)}KB)`);
 
+    // Set selectedFile IMMEDIATELY so "Classify" works even before resize completes (fixes race condition)
+    window.selectedFile = file;
+
     // Show preview immediately using original image (Fast UX)
     const reader = new FileReader();
     reader.onload = function (e) {
@@ -457,14 +460,15 @@ async function handleFile(file) {
     };
     reader.readAsDataURL(file);
 
-    // Resize image for upload (Background task)
+    // Resize image for upload (Background task) - updates selectedFile when done
     try {
         const resizedBlob = await resizeImage(file, 800); // Max 800px
-        window.selectedFile = new File([resizedBlob], file.name, { type: 'image/jpeg' });
+        const baseName = (file.name || 'image').replace(/\.[^/.]+$/, '') || 'image';
+        window.selectedFile = new File([resizedBlob], baseName + '.jpg', { type: 'image/jpeg' });
         console.log('✓ Resized for upload:', `(${Math.round(resizedBlob.size / 1024)}KB)`);
     } catch (error) {
         console.error('Resize failed, using original:', error);
-        window.selectedFile = file; // Fallback
+        window.selectedFile = file; // Fallback - keep original
     }
 }
 
