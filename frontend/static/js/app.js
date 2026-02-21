@@ -157,6 +157,8 @@ async function checkAPIHealth() {
             console.log('✓ API is healthy and model is loaded');
         } else {
             console.warn('⚠ API is running but model may not be loaded');
+            // Start loading model in background so it may be ready when user classifies
+            fetch(`${API_BASE_URL}/warmup`).catch(() => {});
         }
     } catch (error) {
         console.error('❌ Could not connect to API:', error);
@@ -523,7 +525,7 @@ function handleRemoveImage() {
 }
 
 /**
- * Handle prediction request (with retry for cold-start model loading)
+ * Handle prediction request. First request may take 1–2 min while model loads.
  */
 async function handlePredict() {
     if (!window.selectedFile) {
@@ -533,59 +535,41 @@ async function handlePredict() {
 
     console.log('🔮 Starting prediction...');
 
-    // Show loading state
     loadingSection.classList.add('active');
     resultsSection.classList.remove('active');
+    const msgEl = loadingSection.querySelector('p');
+    if (msgEl) msgEl.textContent = 'Analyzing your image... (first time may take 1–2 min)';
 
     const formData = new FormData();
     formData.append('file', window.selectedFile);
 
-    const maxRetries = 4;
-    const retryDelayMs = 15000;
+    try {
+        const response = await fetch(`${API_BASE_URL}/predict`, {
+            method: 'POST',
+            body: formData
+        });
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        let data;
         try {
-            const response = await fetch(`${API_BASE_URL}/predict`, {
-                method: 'POST',
-                body: formData
-            });
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonErr) {
-                throw new Error(`Server is warming up (status ${response.status}). Please wait and try again.`);
-            }
-
-            if (response.ok && data.success) {
-                loadingSection.classList.remove('active');
-                console.log('✓ Prediction successful:', data.predicted_class);
-                displayResults(data);
-                return;
-            }
-
-            // 503 + model_loading: retry after delay (cold start)
-            if (response.status === 503 && data.model_loading && attempt < maxRetries) {
-                const waitSec = retryDelayMs / 1000;
-                console.log(`⏳ Model loading... retrying in ${waitSec}s (attempt ${attempt}/${maxRetries})`);
-                const msgEl = loadingSection.querySelector('p');
-                if (msgEl) msgEl.textContent = `AI model warming up... retrying in ${waitSec}s`;
-                await new Promise(r => setTimeout(r, retryDelayMs));
-                if (msgEl) msgEl.textContent = 'Analyzing your image...';
-                continue;
-            }
-
-            throw new Error(data.error || data.message || 'Prediction failed.');
-
-        } catch (error) {
-            if (attempt === maxRetries) {
-                console.error('❌ Prediction error:', error);
-                loadingSection.classList.remove('active');
-                showError(error.message || 'An error occurred during prediction. Please try again.');
-            } else {
-                await new Promise(r => setTimeout(r, retryDelayMs));
-            }
+            data = await response.json();
+        } catch (jsonErr) {
+            throw new Error(`Server responded with status ${response.status}. Please try again.`);
         }
+
+        loadingSection.classList.remove('active');
+        if (msgEl) msgEl.textContent = 'Analyzing your image...';
+
+        if (response.ok && data.success) {
+            console.log('✓ Prediction successful:', data.predicted_class);
+            displayResults(data);
+        } else {
+            throw new Error(data.error || data.message || 'Prediction failed.');
+        }
+    } catch (error) {
+        console.error('❌ Prediction error:', error);
+        loadingSection.classList.remove('active');
+        if (msgEl) msgEl.textContent = 'Analyzing your image...';
+        showError(error.message || 'An error occurred during prediction. Please try again.');
     }
 }
 

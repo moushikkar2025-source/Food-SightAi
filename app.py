@@ -119,60 +119,49 @@ def load_user(user_id):
 # --- MODEL LOADING ---
 CLASS_NAMES = []
 model = None
-_model_loading = False
 _model_load_lock = threading.Lock()
 
 def load_class_names():
     global CLASS_NAMES
-    paths = ['class_names.txt', os.path.join('backend', 'class_names.txt'), 'model/class_names.txt']
+    paths = [
+        os.path.join(basedir, 'class_names.txt'),
+        os.path.join(basedir, 'backend', 'class_names.txt'),
+        os.path.join(basedir, 'model', 'class_names.txt')
+    ]
     for p in paths:
         if os.path.exists(p):
             with open(p, 'r') as f:
                 CLASS_NAMES = [line.strip() for line in f.readlines() if line.strip()]
             logger.info(f"Loaded {len(CLASS_NAMES)} classes from {p}")
             return
-    CLASS_NAMES = EXPANDED_CLASS_NAMES # Fallback
+    CLASS_NAMES = EXPANDED_CLASS_NAMES  # Fallback
     logger.warning("Using fallback class names from config")
 
 def _load_model_sync():
-    """Load model (runs in background thread)."""
+    """Load model in current thread (safe for inference in same process)."""
     global model
-    global _model_loading
-    try:
-        model_paths = [
-            os.path.join('model', 'best_model_v6_final (fine-tuned).keras'),
-            os.path.join('model', 'best_model_v6_final.keras'),
-            'best_model.keras'
-        ]
-        for p in model_paths:
-            if os.path.exists(p):
+    model_paths = [
+        os.path.join(basedir, 'model', 'best_model_v6_final (fine-tuned).keras'),
+        os.path.join(basedir, 'model', 'best_model_v6_final.keras'),
+        os.path.join(basedir, 'best_model.keras')
+    ]
+    for p in model_paths:
+        if os.path.exists(p):
+            try:
+                logger.info(f"Loading model: {p}")
+                model = tf.keras.models.load_model(p, compile=False)
+                logger.info("Model loaded successfully")
+                return True
+            except Exception as e1:
+                logger.warning(f"Load with compile=False failed: {e1}, trying default...")
                 try:
-                    logger.info(f"Loading model: {p}")
-                    # compile=False avoids optimizer state compatibility issues with Keras 3.x
-                    model = tf.keras.models.load_model(p, compile=False)
-                    logger.info("Model loaded successfully")
-                    return
-                except Exception as e1:
-                    logger.warning(f"Load with compile=False failed: {e1}, trying default...")
-                    try:
-                        model = tf.keras.models.load_model(p)
-                        logger.info("Model loaded successfully (default)")
-                        return
-                    except Exception as e2:
-                        logger.error(f"Failed to load {p}: {e2}")
-        logger.warning("No model could be loaded")
-    finally:
-        _model_loading = False
-
-def load_trained_model():
-    """Start model loading in background so app can bind to port immediately."""
-    global _model_loading
-    with _model_load_lock:
-        if _model_loading or model is not None:
-            return
-        _model_loading = True
-    t = threading.Thread(target=_load_model_sync, daemon=True)
-    t.start()
+                    model = tf.keras.models.load_model(p)
+                    logger.info("Model loaded successfully (default)")
+                    return True
+                except Exception as e2:
+                    logger.error(f"Failed to load {p}: {e2}")
+    logger.warning("No model could be loaded")
+    return False
 
 def preprocess_image(filepath):
     """MobileNetV3 Specific Preprocessing"""
@@ -196,20 +185,38 @@ def health():
     return jsonify({
         'status': 'healthy',
         'model_loaded': model is not None,
-        'model_loading': _model_loading,
         'classes': len(CLASS_NAMES),
         'tf_version': tf.__version__,
         'server_time': datetime.now().isoformat()
     })
+
+@app.route('/api/warmup')
+def warmup():
+    """Load the model (call after deploy so first predict is fast). Blocks until done."""
+    if model is not None:
+        return jsonify({'model_loaded': True, 'message': 'Model already loaded'})
+    with _model_load_lock:
+        if model is not None:
+            return jsonify({'model_loaded': True, 'message': 'Model already loaded'})
+        ok = _load_model_sync()
+    return jsonify({'model_loaded': ok, 'message': 'Model loaded' if ok else 'Model failed to load'}), 200 if ok else 503
 
 @app.route('/api/predict', methods=['POST'])
 @limiter.limit("10 per minute")
 def predict():
     start_time = time.time()
     try:
+        # Lazy-load model in this thread on first use (avoids TensorFlow cross-thread issues)
         if model is None:
-            msg = 'AI model is still loading. Please wait 30–60 seconds and try again.' if _model_loading else 'AI model not loaded on server'
-            return jsonify({'error': msg, 'model_loading': _model_loading}), 503
+            with _model_load_lock:
+                if model is None:
+                    logger.info("Model not loaded; loading now (this may take 1–2 minutes)...")
+                    ok = _load_model_sync()
+                    if not ok:
+                        return jsonify({'error': 'AI model could not be loaded on server'}), 503
+            # If we didn't acquire the lock but model is now set, another request loaded it; continue
+            if model is None:
+                return jsonify({'error': 'AI model not loaded on server'}), 503
         
         if 'file' not in request.files:
             return jsonify({'error': 'No image file uploaded'}), 400
@@ -400,7 +407,7 @@ def initialize():
             logger.error(f"Database initialization failed: {e}")
             
     load_class_names()
-    load_trained_model()
+    # Model loads on first /api/predict or /api/warmup (lazy) so the app can start immediately
 
 # Run initialization once on import
 initialize()
