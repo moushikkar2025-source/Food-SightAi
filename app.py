@@ -263,6 +263,66 @@ def predict():
 def get_classes():
     return jsonify({'classes': CLASS_NAMES, 'count': len(CLASS_NAMES)})
 
+@app.route('/api/search')
+def search():
+    """Text-based dish lookup by name. Returns same structure as /api/predict for displayResults."""
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({'success': False, 'message': 'Please enter a dish name to search'}), 400
+
+    dishes = get_all_dishes()
+    query_lower = query.lower()
+
+    # 1. Exact match (case-insensitive)
+    for dish in dishes:
+        if dish.lower() == query_lower:
+            return _build_search_response(dish)
+    # 2. Starts-with match
+    for dish in dishes:
+        if dish.lower().startswith(query_lower):
+            return _build_search_response(dish)
+    # 3. Contains match
+    matches = [d for d in dishes if query_lower in d.lower()]
+    if matches:
+        return _build_search_response(matches[0])
+    return jsonify({'success': False, 'message': f'"{query}" not found. Try another dish or upload a photo.'}), 404
+
+def _build_search_response(predicted_class):
+    nutrition = get_nutrition_info(predicted_class, portion='medium')
+    if not nutrition:
+        return jsonify({'success': False, 'message': 'Nutrition data unavailable for this dish'}), 404
+    res = {
+        'success': True,
+        'predicted_class': predicted_class,
+        'confidence': 100.0,
+        'top_3': [{'class': predicted_class, 'confidence': 100.0}],
+        'timestamp': datetime.now().isoformat(),
+        'source': 'search'
+    }
+    res.update({
+        'nutrition': nutrition,
+        'health_indicators': get_health_indicators(nutrition),
+        'health_score': calculate_health_score(nutrition),
+        'suitability': get_dietary_suitability(nutrition)
+    })
+    return jsonify(res)
+
+@app.route('/api/nutrition/<path:dish>')
+def get_nutrition(dish):
+    """Get nutrition info for a dish with custom portion (q=quantity, u=unit)."""
+    qty = request.args.get('q') or None
+    unit = request.args.get('u') or None
+    nutrition = get_nutrition_info(dish, quantity=qty, unit=unit)
+    if not nutrition:
+        return jsonify({'success': False, 'message': f'Dish "{dish}" not found'}), 404
+    return jsonify({
+        'success': True,
+        'nutrition': nutrition,
+        'health_indicators': get_health_indicators(nutrition),
+        'health_score': calculate_health_score(nutrition),
+        'suitability': get_dietary_suitability(nutrition)
+    })
+
 # Auth & History Implementation
 @app.route('/api/auth/login', methods=['POST'])
 def login():
