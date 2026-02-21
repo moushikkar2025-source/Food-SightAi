@@ -506,7 +506,13 @@ async function handlePredict() {
             body: formData
         });
 
-        const data = await response.json();
+        // Safely parse JSON — Render may return empty body on 502/504 timeout
+        let data;
+        try {
+            data = await response.json();
+        } catch (jsonErr) {
+            throw new Error(`Server is warming up (status ${response.status}). Please wait 30 seconds and try again.`);
+        }
 
         // Hide loading
         loadingSection.classList.remove('active');
