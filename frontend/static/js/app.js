@@ -523,7 +523,7 @@ function handleRemoveImage() {
 }
 
 /**
- * Handle prediction request
+ * Handle prediction request (with retry for cold-start model loading)
  */
 async function handlePredict() {
     if (!window.selectedFile) {
@@ -537,40 +537,55 @@ async function handlePredict() {
     loadingSection.classList.add('active');
     resultsSection.classList.remove('active');
 
-    // Create form data
     const formData = new FormData();
     formData.append('file', window.selectedFile);
 
-    try {
-        // Send prediction request
-        const response = await fetch(`${API_BASE_URL}/predict`, {
-            method: 'POST',
-            body: formData
-        });
+    const maxRetries = 4;
+    const retryDelayMs = 15000;
 
-        // Safely parse JSON — Render may return empty body on 502/504 timeout
-        let data;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            data = await response.json();
-        } catch (jsonErr) {
-            throw new Error(`Server is warming up (status ${response.status}). Please wait 30 seconds and try again.`);
+            const response = await fetch(`${API_BASE_URL}/predict`, {
+                method: 'POST',
+                body: formData
+            });
+
+            let data;
+            try {
+                data = await response.json();
+            } catch (jsonErr) {
+                throw new Error(`Server is warming up (status ${response.status}). Please wait and try again.`);
+            }
+
+            if (response.ok && data.success) {
+                loadingSection.classList.remove('active');
+                console.log('✓ Prediction successful:', data.predicted_class);
+                displayResults(data);
+                return;
+            }
+
+            // 503 + model_loading: retry after delay (cold start)
+            if (response.status === 503 && data.model_loading && attempt < maxRetries) {
+                const waitSec = retryDelayMs / 1000;
+                console.log(`⏳ Model loading... retrying in ${waitSec}s (attempt ${attempt}/${maxRetries})`);
+                const msgEl = loadingSection.querySelector('p');
+                if (msgEl) msgEl.textContent = `AI model warming up... retrying in ${waitSec}s`;
+                await new Promise(r => setTimeout(r, retryDelayMs));
+                if (msgEl) msgEl.textContent = 'Analyzing your image...';
+                continue;
+            }
+
+            throw new Error(data.error || data.message || 'Prediction failed.');
+
+        } catch (error) {
+            if (attempt === maxRetries) {
+                console.error('❌ Prediction error:', error);
+                loadingSection.classList.remove('active');
+                showError(error.message || 'An error occurred during prediction. Please try again.');
+            } else {
+                await new Promise(r => setTimeout(r, retryDelayMs));
+            }
         }
-
-        // Hide loading
-        loadingSection.classList.remove('active');
-
-        if (response.ok && data.success) {
-            console.log('✓ Prediction successful:', data.predicted_class);
-            displayResults(data);
-        } else {
-            // Backend sends 'data.error', not 'data.message' — read both for safety
-            throw new Error(data.error || data.message || 'Prediction failed. The AI model may still be loading — please wait a moment and try again.');
-        }
-
-    } catch (error) {
-        console.error('❌ Prediction error:', error);
-        loadingSection.classList.remove('active');
-        showError(error.message || 'An error occurred during prediction. Please try again.');
     }
 }
 

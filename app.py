@@ -15,6 +15,7 @@ import sys
 import uuid
 import logging
 import time
+import threading
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
@@ -118,6 +119,8 @@ def load_user(user_id):
 # --- MODEL LOADING ---
 CLASS_NAMES = []
 model = None
+_model_loading = False
+_model_load_lock = threading.Lock()
 
 def load_class_names():
     global CLASS_NAMES
@@ -131,23 +134,45 @@ def load_class_names():
     CLASS_NAMES = EXPANDED_CLASS_NAMES # Fallback
     logger.warning("Using fallback class names from config")
 
-def load_trained_model():
+def _load_model_sync():
+    """Load model (runs in background thread)."""
     global model
-    model_paths = [
-        os.path.join('model', 'best_model_v6_final (fine-tuned).keras'),
-        os.path.join('model', 'best_model_v6_final.keras'),
-        'best_model.keras'
-    ]
-    for p in model_paths:
-        if os.path.exists(p):
-            try:
-                logger.info(f"Loading model: {p}")
-                model = tf.keras.models.load_model(p)
-                logger.info("Model loaded successfully")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to load {p}: {e}")
-    return False
+    global _model_loading
+    try:
+        model_paths = [
+            os.path.join('model', 'best_model_v6_final (fine-tuned).keras'),
+            os.path.join('model', 'best_model_v6_final.keras'),
+            'best_model.keras'
+        ]
+        for p in model_paths:
+            if os.path.exists(p):
+                try:
+                    logger.info(f"Loading model: {p}")
+                    # compile=False avoids optimizer state compatibility issues with Keras 3.x
+                    model = tf.keras.models.load_model(p, compile=False)
+                    logger.info("Model loaded successfully")
+                    return
+                except Exception as e1:
+                    logger.warning(f"Load with compile=False failed: {e1}, trying default...")
+                    try:
+                        model = tf.keras.models.load_model(p)
+                        logger.info("Model loaded successfully (default)")
+                        return
+                    except Exception as e2:
+                        logger.error(f"Failed to load {p}: {e2}")
+        logger.warning("No model could be loaded")
+    finally:
+        _model_loading = False
+
+def load_trained_model():
+    """Start model loading in background so app can bind to port immediately."""
+    global _model_loading
+    with _model_load_lock:
+        if _model_loading or model is not None:
+            return
+        _model_loading = True
+    t = threading.Thread(target=_load_model_sync, daemon=True)
+    t.start()
 
 def preprocess_image(filepath):
     """MobileNetV3 Specific Preprocessing"""
@@ -171,6 +196,7 @@ def health():
     return jsonify({
         'status': 'healthy',
         'model_loaded': model is not None,
+        'model_loading': _model_loading,
         'classes': len(CLASS_NAMES),
         'tf_version': tf.__version__,
         'server_time': datetime.now().isoformat()
@@ -182,7 +208,8 @@ def predict():
     start_time = time.time()
     try:
         if model is None:
-            return jsonify({'error': 'AI model not loaded on server'}), 503
+            msg = 'AI model is still loading. Please wait 30–60 seconds and try again.' if _model_loading else 'AI model not loaded on server'
+            return jsonify({'error': msg, 'model_loading': _model_loading}), 503
         
         if 'file' not in request.files:
             return jsonify({'error': 'No image file uploaded'}), 400
