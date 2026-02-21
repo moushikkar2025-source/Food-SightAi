@@ -436,10 +436,9 @@ function handleFileSelect(e) {
 }
 
 /**
- * Process the selected file
+ * Process the selected file with client-side resizing for performance
  */
-function handleFile(file) {
-    // Validate file type
+async function handleFile(file) {
     // Validate file type
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
     if (!validTypes.includes(file.type)) {
@@ -447,16 +446,9 @@ function handleFile(file) {
         return;
     }
 
-    // Validate file size (16MB max)
-    const maxSize = 16 * 1024 * 1024; // 16MB
-    if (file.size > maxSize) {
-        showError('File size must be less than 16MB');
-        return;
-    }
+    console.log('✓ File processing started:', file.name, `(${Math.round(file.size / 1024)}KB)`);
 
-    console.log('✓ File selected:', file.name);
-
-    // Read and display the image
+    // Show preview immediately using original image (Fast UX)
     const reader = new FileReader();
     reader.onload = function (e) {
         previewImage.src = e.target.result;
@@ -465,8 +457,54 @@ function handleFile(file) {
     };
     reader.readAsDataURL(file);
 
-    // Store the file for later upload
-    window.selectedFile = file;
+    // Resize image for upload (Background task)
+    try {
+        const resizedBlob = await resizeImage(file, 800); // Max 800px
+        window.selectedFile = new File([resizedBlob], file.name, { type: 'image/jpeg' });
+        console.log('✓ Resized for upload:', `(${Math.round(resizedBlob.size / 1024)}KB)`);
+    } catch (error) {
+        console.error('Resize failed, using original:', error);
+        window.selectedFile = file; // Fallback
+    }
+}
+
+/**
+ * Universal Image Resizer
+ */
+function resizeImage(file, maxDim) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > maxDim) {
+                        height *= maxDim / width;
+                        width = maxDim;
+                    }
+                } else {
+                    if (height > maxDim) {
+                        width *= maxDim / height;
+                        height = maxDim;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85);
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
 }
 
 /**

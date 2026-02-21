@@ -7,8 +7,8 @@ Flask==3.0.0
 Flask-CORS==4.0.0
 Werkzeug==3.0.1
 
-# Deep Learning (TensorFlow)
-tensorflow>=2.15.0
+# Deep Learning (TensorFlow-CPU)
+tensorflow-cpu>=2.15.0
 
 # Image Processing
 Pillow>=10.0.0
