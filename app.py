@@ -46,16 +46,12 @@ try:
     from backend.dataset_config import EXPANDED_CLASS_NAMES, DATASET_STATS, CATEGORY_MAPPING, REGION_MAPPING
 except ImportError as e:
     logger.error(f"Critical Import Error: {e}")
-    # Fallback placeholders if needed, but better to fail early in dev
     raise
 
 # Database Configuration (for Auth)
-try:
-    from flask_sqlalchemy import SQLAlchemy
-    from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-    from flask_bcrypt import Bcrypt
-except ImportError:
-    logger.warning("Auth dependencies missing. Some features may not work.")
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_bcrypt import Bcrypt
 
 # Flask Config
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -63,7 +59,14 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, 'uploads')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'webp'}
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-key-123')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///' + os.path.join(basedir, 'instance', 'users.db'))
+
+# Robust Database URI handling (SQLite vs PostgreSQL for Render)
+db_url = os.getenv('DATABASE_URL')
+if db_url and db_url.startswith("postgres://"):
+    # SQLAlchemy 1.4+ requires 'postgresql://' instead of 'postgres://'
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url or ('sqlite:///' + os.path.join(basedir, 'instance', 'users.db'))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize Extensions
@@ -260,7 +263,7 @@ def predict():
 def get_classes():
     return jsonify({'classes': CLASS_NAMES, 'count': len(CLASS_NAMES)})
 
-# Auth & History Implementation (Condensed)
+# Auth & History Implementation
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.json
@@ -295,12 +298,24 @@ def logout():
 
 # --- STARTUP ---
 def initialize():
+    # Ensure all required directories exist
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    
+    # CRITICAL: Create the 'instance' folder for SQLite
+    instance_path = os.path.join(basedir, 'instance')
+    os.makedirs(instance_path, exist_ok=True)
+    
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error(f"Database initialization failed: {e}")
+            
     load_class_names()
     load_trained_model()
 
+# Run initialization once on import
 initialize()
 
 if __name__ == '__main__':
