@@ -1622,11 +1622,10 @@ async function startCamera() {
     };
 
     try {
-        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = cameraStream;
+        video.src = "http://192.168.29.6:81/stream";
     } catch (err) {
         console.error("Error accessing camera:", err);
-        showError("Could not access camera. Please allow permissions.");
+        showError("Could not connect to ESP32 camera.");
     }
 }
 
